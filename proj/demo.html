@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Extension Verification Target</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      padding: 30px;
+      background-color: #f4f6f8;
+      color: #333;
+    }
+    .card {
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      margin-bottom: 25px;
+      max-width: 800px;
+    }
+    h1 {
+      margin-top: 0;
+      color: #111;
+    }
+    .ad-container-label {
+      font-size: 12px;
+      color: #666;
+      margin-bottom: 6px;
+      font-weight: bold;
+      text-transform: uppercase;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Satirical Ad Replacer - Demo Verification Target</h1>
+    <p>When the Chrome Extension is enabled, the placeholder containers below will automatically transform into satirical, predatory ad components.</p>
+  </div>
+
+  <div class="card">
+    <div class="ad-container-label">Target Slot 1: .ad-slot ( Medium Rectangle 300x250 )</div>
+    <div class="ad-slot" style="width: 300px; height: 250px; background: #e0e0e0; border: 2px dashed #999; margin-bottom: 20px;"></div>
+
+    <div class="ad-container-label">Target Slot 2: .ad-banner ( Leaderboard 728x90 )</div>
+    <div class="ad-banner" style="width: 728px; height: 90px; background: #d5d5d5; border: 2px dashed #999;"></div>
+  </div>
+
+  <div class="card">
+    <div class="ad-container-label">Target Slot 3: ins.adsbygoogle ( Google AdSense Simulation 336x280 )</div>
+    <ins class="adsbygoogle" style="width: 336px; height: 280px; background: #eee; border: 2px dashed #999; display: block;"></ins>
+  </div>
+</body>
+</html>
