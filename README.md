@@ -24,16 +24,17 @@ We replace the intrusive ads with even more intrusive memes. Since the internet 
 ### Technologies/Components Used
 For Software:
 - JavaScript,HTML,CSS
-- [Libraries used]
-- [Tools used]
 
 ### Implementation
 For Software:
 # Installation
-[commands]
+https://mememaxx-website.vercel.app/
+Go and Download the zip file of the extension and then unpack and install
 
 # Run
-[commands]
+Enable dev mode in the chrome extension manager, and upload the folder via load unpacked
+
+extension after installation
 
 ### Project Documentation
 For Software:
@@ -59,8 +60,8 @@ content.js — injected into every webpage — reads those assets and scans the 
 
 ### Project Demo
 # Video
-[Add your demo video link here]
-*Explain what the video demonstrates*
+https://drive.google.com/file/d/1vEZTLLnO8Mkq2N9iwRqSKYb5d57agGSG/view?usp=drive_link
+A working demo of MemeMaxx in all its glory.
 
 
 ## Team Contributions
