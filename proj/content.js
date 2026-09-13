@@ -63,9 +63,38 @@
     img.src = url;
   });
 
+  // Audio Autoplay Policy Unlocker
+  let audioUnlocked = false;
+  function unlockAudio() {
+    if (audioUnlocked) return;
+    audioUnlocked = true;
+    try {
+      const a = new Audio();
+      a.play().catch(() => {});
+    } catch (e) {}
+  }
+
+  ['click', 'keydown', 'mousemove', 'pointerdown', 'touchstart'].forEach((evt) => {
+    window.addEventListener(evt, unlockAudio, { once: true, capture: true });
+  });
+
+  /**
+   * Safe Audio Player helper (creates fresh Audio instance per trigger)
+   */
+  function playSound(assetPath) {
+    try {
+      const url = chrome.runtime.getURL(assetPath);
+      const audio = new Audio(url);
+      audio.volume = 0.85;
+      const promise = audio.play();
+      if (promise !== undefined) {
+        promise.catch(() => {});
+      }
+    } catch (e) {}
+  }
+
   /**
    * Pick the asset whose natural aspect ratio is closest to targetRatio.
-   * If cache is not populated yet, pick a random URL.
    */
   function getBestAssetUrl(targetRatio) {
     if (!assetCache.length) {
@@ -112,44 +141,45 @@
       wrapper.style.boxShadow = '0 10px 30px rgba(0,0,0,0.8), 0 0 15px #ff0055';
     }
 
+    // Initial random position for close button
+    const initTop = Math.floor(Math.random() * 60) + 15;
+    const initLeft = Math.floor(Math.random() * 65) + 15;
+
     wrapper.innerHTML = `
       <style>
-        @keyframes blink-bg {
-          0% { background-color: #ffff00; color: #ff0000; }
-          50% { background-color: #ff0000; color: #ffff00; }
-          100% { background-color: #ffff00; color: #ff0000; }
+        /* NEAR MISS QUICK JITTER ANIMATION */
+        @keyframes quick-jitter {
+          0% { transform: translate(0, 0); }
+          25% { transform: translate(-8px, 5px); }
+          50% { transform: translate(8px, -5px); }
+          75% { transform: translate(-5px, -6px); }
+          100% { transform: translate(0, 0); }
         }
-        @keyframes pop-in {
-          0% { transform: scale(0.3); opacity: 0; }
-          70% { transform: scale(1.05); opacity: 1; }
-          100% { transform: scale(1.0); opacity: 1; }
+        .quick-jitter {
+          animation: quick-jitter 0.2s ease-in-out !important;
         }
-        .satire-popup-wrapper {
-          animation: pop-in 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
-        }
-        .urgency-banner {
-          position: absolute; top: 0; left: 0; width: 100%;
-          animation: blink-bg 0.8s infinite; font-weight: 900;
-          font-size: 11px; text-align: center; line-height: 18px; z-index: 10;
-          letter-spacing: 1px; text-transform: uppercase; box-shadow: 0 2px 5px rgba(0,0,0,0.5);
-        }
+
         .evasive-btn {
-          position: absolute; top: 22px; right: 4px; width: 20px; height: 20px;
-          background: #ff0033; color: #ffffff; font-size: 12px; font-weight: bold;
-          text-align: center; line-height: 20px; cursor: pointer;
-          border: 1px solid #ffffff; border-radius: 3px;
-          z-index: 20; user-select: none; box-shadow: 0 2px 4px rgba(0,0,0,0.5);
-          transition: top 0.1s ease, right 0.1s ease;
+          position: absolute;
+          top: ${initTop}%;
+          left: ${initLeft}%;
+          width: 24px;
+          height: 24px;
+          background: #ff0033;
+          color: #ffffff;
+          font-size: 14px;
+          font-weight: bold;
+          text-align: center;
+          line-height: 24px;
+          cursor: pointer;
+          border: 2px solid #ffffff;
+          border-radius: 4px;
+          z-index: 50;
+          user-select: none;
+          box-shadow: 0 3px 6px rgba(0,0,0,0.6);
+          transition: opacity 0.2s ease;
         }
-        .honest-dismiss-btn {
-          position: absolute; bottom: 4px; right: 4px; padding: 2px 6px;
-          background: rgba(0, 0, 0, 0.75); color: #ffffff; font-size: 10px; font-weight: bold;
-          text-align: center; cursor: pointer; border: 1px solid rgba(255, 255, 255, 0.6);
-          border-radius: 3px; z-index: 25; user-select: none;
-        }
-        .honest-dismiss-btn:hover {
-          background: #ff0000; color: #ffffff;
-        }
+
         .media-container {
           position: relative;
           width: 100%;
@@ -167,9 +197,7 @@
           display: block;
         }
       </style>
-      <div class="urgency-banner">⚠️ PRIZE EXPIRES IN: <span id="clock">05</span>s ⚠️</div>
       <div class="evasive-btn" id="close-target" title="Close Ad">X</div>
-      ${isPopup ? '<div class="honest-dismiss-btn" id="honest-dismiss" title="Dismiss Popup (Esc)">✕ Close</div>' : ''}
       
       <div class="media-container">
         <img src="${assetUrl}" class="main-image" id="satire-img" alt="Satirical Ad" />
@@ -180,63 +208,106 @@
 
     const imgEl = wrapper.querySelector('#satire-img');
 
-    // PART 1: Smart Aspect Ratio Fitting Logic
+    // Smart Aspect Ratio Fitting Logic
     if (imgEl) {
       imgEl.onload = () => {
         if (!imgEl.naturalWidth || !imgEl.naturalHeight) return;
 
         const assetAR = imgEl.naturalWidth / imgEl.naturalHeight;
         const containerAR = containerWidth / containerHeight;
-
-        // Relative aspect ratio difference
         const relativeDiff = Math.abs(containerAR - assetAR) / assetAR;
 
         if (relativeDiff <= 0.15) {
-          // Close match (<=15% diff): keep container dimensions, object-fit: cover
           imgEl.style.objectFit = 'cover';
         } else {
-          // Significant difference (>15% diff):
-          // Keep container width fixed, recalculate wrapper height to match asset aspect ratio
           const newHeight = Math.round(containerWidth / assetAR);
           wrapper.style.height = `${newHeight}px`;
-
           if (wrapperTarget) {
             wrapperTarget.style.height = `${newHeight}px`;
           }
-
           imgEl.style.objectFit = 'cover';
         }
       };
     }
 
-    // Infinite 5s countdown timer
-    let seconds = 5;
-    const clockEl = wrapper.querySelector('#clock');
-    setInterval(() => {
-      seconds--;
-      if (seconds <= 0) seconds = 5;
-      if (clockEl) clockEl.textContent = `0${seconds}`;
-    }, 1000);
+    // CATCHABLE EVASIVE MECHANICS
+    let hasHadFirstMiss = false;
+    let nearMissCooldown = false;
+    let dodgeCount = 0;
+    let dodgeCooldown = false;
+    let isFatigued = false;
 
-    // Evasive close button logic
     const closeTarget = wrapper.querySelector('#close-target');
+
     if (closeTarget) {
-      closeTarget.addEventListener('mouseenter', () => {
-        closeTarget.style.top = `${Math.floor(Math.random() * 60) + 20}%`;
-        closeTarget.style.right = `${Math.floor(Math.random() * 60) + 10}%`;
+      function handleProximity(clientX, clientY) {
+        const btnRect = closeTarget.getBoundingClientRect();
+        const btnCenterX = btnRect.left + btnRect.width / 2;
+        const btnCenterY = btnRect.top + btnRect.height / 2;
+        const distance = Math.hypot(clientX - btnCenterX, clientY - btnCenterY);
+
+        // Near-miss audio & jitter check (~28px threshold)
+        if (distance <= 28 && !nearMissCooldown) {
+          nearMissCooldown = true;
+          setTimeout(() => { nearMissCooldown = false; }, 250);
+
+          if (!hasHadFirstMiss) {
+            hasHadFirstMiss = true;
+            playSound('assets/wrong1.mp3');
+          } else {
+            playSound('assets/wrong.mp3');
+          }
+
+          // Trigger quick-jitter burst
+          wrapper.classList.remove('quick-jitter');
+          void wrapper.offsetWidth; // Reflow
+          wrapper.classList.add('quick-jitter');
+          setTimeout(() => {
+            wrapper.classList.remove('quick-jitter');
+          }, 220);
+        }
+
+        // Tuned Catchable Dodge Mechanics (38px radius, 180ms cooldown, 3-dodge fatigue pause)
+        if (distance <= 38 && !isFatigued && !dodgeCooldown) {
+          dodgeCooldown = true;
+          setTimeout(() => { dodgeCooldown = false; }, 180);
+
+          dodgeCount++;
+
+          const newTop = Math.floor(Math.random() * 60) + 15;
+          const newLeft = Math.floor(Math.random() * 65) + 15;
+          closeTarget.style.top = `${newTop}%`;
+          closeTarget.style.left = `${newLeft}%`;
+
+          // After 3 consecutive dodges, fatigue for 1.2s so the user can catch & click it!
+          if (dodgeCount >= 3) {
+            isFatigued = true;
+            closeTarget.style.opacity = '0.7';
+            closeTarget.title = 'Click to Close (Button Tired!)';
+
+            setTimeout(() => {
+              isFatigued = false;
+              dodgeCount = 0;
+              closeTarget.style.opacity = '1';
+              closeTarget.title = 'Close Ad';
+            }, 1200);
+          }
+        }
+      }
+
+      wrapper.addEventListener('mousemove', (e) => {
+        handleProximity(e.clientX, e.clientY);
       });
+
+      // Successful Close Click on Evasive X button
       closeTarget.addEventListener('click', (e) => {
         e.stopPropagation();
-        alert('ERROR: Action blocked by system policy! Claiming prize mandatory.');
-      });
-    }
-
-    // Honest dismiss button (for popups)
-    const honestDismiss = wrapper.querySelector('#honest-dismiss');
-    if (honestDismiss && typeof onDismiss === 'function') {
-      honestDismiss.addEventListener('click', (e) => {
-        e.stopPropagation();
-        onDismiss();
+        if (typeof onDismiss === 'function') {
+          onDismiss();
+        } else {
+          playSound('assets/close.mp3');
+          alert('ERROR: Action blocked by system policy!');
+        }
       });
     }
   }
@@ -276,7 +347,6 @@
       element.style.display = 'block';
     }
 
-    // Pick candidate asset closest to container's aspect ratio
     const targetRatio = width / height;
     const bestAssetUrl = getBestAssetUrl(targetRatio);
 
@@ -312,12 +382,17 @@
     }
   }
 
-  // PART 2 — INDEPENDENT POPUP AD SPAWNING ENGINE
+  // INDEPENDENT POPUP AD SPAWNING ENGINE
   const activePopups = [];
   const MAX_POPUPS = 4;
+  let popSoundCounter = 0;
 
   function dismissPopup(popupElement) {
     if (!popupElement) return;
+
+    // Play close.mp3 sound on dismissal
+    playSound('assets/close.mp3');
+
     const index = activePopups.indexOf(popupElement);
     if (index !== -1) {
       activePopups.splice(index, 1);
@@ -330,11 +405,15 @@
   function spawnRandomPopup() {
     if (activePopups.length >= MAX_POPUPS) return;
 
+    // Guaranteed 1:1 Alternating Spawn Sound (pop1 -> pop2 -> pop1 -> pop2)
+    popSoundCounter++;
+    const popSound = (popSoundCounter % 2 === 1) ? 'assets/pop1.mp3' : 'assets/pop2.mp3';
+    playSound(popSound);
+
     // Random popup dimensions (250-400px width, 200-300px height)
     const popupWidth = Math.floor(Math.random() * 150) + 250;
     const popupHeight = Math.floor(Math.random() * 100) + 200;
 
-    // Viewport boundaries
     const viewportW = window.innerWidth || document.documentElement.clientWidth || 800;
     const viewportH = window.innerHeight || document.documentElement.clientHeight || 600;
 
@@ -344,12 +423,27 @@
     const left = Math.floor(Math.random() * maxLeft) + 10;
     const top = Math.floor(Math.random() * maxTop) + 10;
 
+    // Global Keyframe Animation Definition for Host Popup Element
+    if (!document.getElementById('satire-global-styles')) {
+      const globalStyle = document.createElement('style');
+      globalStyle.id = 'satire-global-styles';
+      globalStyle.textContent = `
+        @keyframes sat-pop-in {
+          0% { transform: scale(0); opacity: 0; }
+          70% { transform: scale(1.05); opacity: 1; }
+          100% { transform: scale(1.0); opacity: 1; }
+        }
+      `;
+      (document.head || document.documentElement).appendChild(globalStyle);
+    }
+
     const popupDiv = document.createElement('div');
-    // Set PROCESSED_FLAG so MutationObserver ignores it entirely
     popupDiv.setAttribute(PROCESSED_FLAG, 'true');
     popupDiv.style.cssText =
       `position:fixed; z-index:999999; left:${left}px; top:${top}px; ` +
-      `width:${popupWidth}px; height:${popupHeight}px; display:block;`;
+      `width:${popupWidth}px; height:${popupHeight}px; display:block; ` +
+      `animation: sat-pop-in 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) forwards; ` +
+      `transform-origin: center center;`;
 
     document.body.appendChild(popupDiv);
     activePopups.push(popupDiv);
@@ -381,7 +475,6 @@
   }
 
   function scheduleNextPopup() {
-    // Randomized interval between 15s and 30s (15000ms - 30000ms)
     const intervalMs = Math.floor(Math.random() * 15000) + 15000;
     setTimeout(() => {
       spawnRandomPopup();
@@ -401,7 +494,7 @@
   executeScan();
   scheduleNextPopup();
 
-  // Dynamic DOM insertion observer (for container replacement path)
+  // Dynamic DOM insertion observer
   const observer = new MutationObserver((mutations) => {
     let nodeAdded = false;
     for (const mutation of mutations) {
