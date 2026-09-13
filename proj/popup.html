@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Ad Replacer</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <div class="app">
+    <header>
+      <span>😈 Ad Replacer</span>
+      <span class="saved" id="saved-label">Saved</span>
+    </header>
+
+    <nav>
+      <button class="tab active" data-tab="images-tab">Images <span id="img-count">0</span></button>
+      <button class="tab" data-tab="videos-tab">Videos <span id="vid-count">0</span></button>
+    </nav>
+
+    <main>
+      <!-- IMAGES -->
+      <section id="images-tab" class="panel active">
+        <div class="dropzone" id="img-dropzone">
+          <p>Drop images here or</p>
+          <button id="img-browse-btn">Browse</button>
+          <input type="file" id="img-input" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden />
+        </div>
+        <div class="grid" id="img-grid"></div>
+        <p class="empty" id="img-empty">No custom images — using defaults.</p>
+      </section>
+
+      <!-- VIDEOS -->
+      <section id="videos-tab" class="panel">
+        <div class="dropzone" id="vid-dropzone">
+          <p>Drop videos here or</p>
+          <button id="vid-browse-btn">Browse</button>
+          <input type="file" id="vid-input" accept="video/mp4,video/webm" multiple hidden />
+        </div>
+        <div class="grid" id="vid-grid"></div>
+        <p class="empty" id="vid-empty">No custom videos — using defaults.</p>
+      </section>
+    </main>
+
+    <footer>
+      <button id="reset-btn">Reset to defaults</button>
+    </footer>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>

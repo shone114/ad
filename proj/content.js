@@ -48,8 +48,8 @@
     'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'HEADER', 'MAIN', 'NAV', 'P', 'SECTION', 'SPAN'
   ]);
 
-  // Image & GIF Assets in assets/imgs/
-  const CUSTOM_IMAGES = [
+  // Default Image & GIF Assets in assets/imgs/
+  const DEFAULT_IMAGES = [
     'assets/imgs/1.png',
     'assets/imgs/2.jpg',
     'assets/imgs/3.jpg',
@@ -62,41 +62,102 @@
     'assets/imgs/10.jpg'
   ];
 
-  // Video Ad Assets in assets/vids/ (POPUPS ONLY)
-  const CUSTOM_VIDEOS = [
+  // Default Video Ad Assets in assets/vids/ (POPUPS ONLY)
+  const DEFAULT_VIDEOS = [
     'assets/vids/vidssave.com Sunlight _ Whatever be your age, hold on to the colours of your life! (Malayalam) 720P (online-video-cutter.com).mp4',
     'assets/vids/vidssave.com Washing Powder Nirma – Historic ad – Edit 1 720p.mp4',
     'assets/vids/a10.mp4'
   ];
 
+  let customUploadedImages = [];
+  let customUploadedVideos = [];
+
+  function syncCustomAssets() {
+    if (!isContextValid()) return;
+    try {
+      chrome.storage.local.get(['customImages', 'customVideos'], (data) => {
+        if (data.customImages && Array.isArray(data.customImages)) {
+          customUploadedImages = data.customImages;
+        }
+        if (data.customVideos && Array.isArray(data.customVideos)) {
+          customUploadedVideos = data.customVideos;
+        }
+      });
+    } catch (e) {}
+  }
+  syncCustomAssets();
+
+  if (isContextValid() && chrome.storage && chrome.storage.onChanged) {
+    chrome.storage.onChanged.addListener((changes) => {
+      if (changes.customImages) customUploadedImages = changes.customImages.newValue || [];
+      if (changes.customVideos) customUploadedVideos = changes.customVideos.newValue || [];
+    });
+  }
+
   const recentAssets = [];
 
-  /**
-   * Video rarity set to 40% for high impact popups
-   */
   function getRandomCreativeAsset(allowVideo = false) {
     const isVideoChoice = allowVideo && (Math.random() < 0.40);
-    const pool = isVideoChoice ? CUSTOM_VIDEOS : CUSTOM_IMAGES;
 
-    const available = pool.filter((path) => !recentAssets.includes(path));
-    const finalPool = available.length > 0 ? available : pool;
+    let chosenUrl = '';
+    let isVideo = false;
 
-    const chosenPath = finalPool[Math.floor(Math.random() * finalPool.length)];
+    if (isVideoChoice) {
+      const vidPool = customUploadedVideos.length > 0
+        ? customUploadedVideos
+        : DEFAULT_VIDEOS.map((p) => safeGetURL(p));
 
-    recentAssets.push(chosenPath);
+      const available = vidPool.filter((url) => !recentAssets.includes(url));
+      const finalPool = available.length > 0 ? available : vidPool;
+      chosenUrl = finalPool[Math.floor(Math.random() * finalPool.length)];
+      isVideo = true;
+    } else {
+      const imgPool = customUploadedImages.length > 0
+        ? customUploadedImages
+        : DEFAULT_IMAGES.map((p) => safeGetURL(p));
+
+      const available = imgPool.filter((url) => !recentAssets.includes(url));
+      const finalPool = available.length > 0 ? available : imgPool;
+      chosenUrl = finalPool[Math.floor(Math.random() * finalPool.length)];
+      isVideo = false;
+    }
+
+    recentAssets.push(chosenUrl);
     if (recentAssets.length > 6) {
       recentAssets.shift();
     }
 
-    const isVideo = chosenPath.endsWith('.mp4') || chosenPath.endsWith('.webm');
     return {
-      url: safeGetURL(chosenPath),
-      relativePath: chosenPath,
+      url: chosenUrl,
       isVideo: isVideo
     };
   }
 
-  // Audio Autoplay Policy Unlocker
+  // Preloaded SFX Cache for Instant Zero-Delay Playback
+  const sfxPaths = [
+    'assets/fx/pop1.mp3',
+    'assets/fx/pop2.mp3',
+    'assets/fx/wrong1.mp3',
+    'assets/fx/wrong.mp3',
+    'assets/fx/close.mp3'
+  ];
+
+  const preloadedSFX = {};
+  function preloadAudioEffects() {
+    if (!isContextValid()) return;
+    sfxPaths.forEach((path) => {
+      try {
+        const url = safeGetURL(path);
+        if (url) {
+          const audio = new Audio(url);
+          audio.preload = 'auto';
+          preloadedSFX[path] = audio;
+        }
+      } catch (e) {}
+    });
+  }
+  preloadAudioEffects();
+
   let audioUnlocked = false;
   function unlockAudio() {
     if (!isContextValid()) return;
@@ -104,10 +165,9 @@
     audioUnlocked = true;
     try {
       const a = new Audio();
-      a.play().catch(() => { });
-    } catch (e) { }
+      a.play().catch(() => {});
+    } catch (e) {}
 
-    // Unmute & set max volume (1.0) on video ads
     document.querySelectorAll('video').forEach((v) => {
       v.muted = false;
       v.volume = 1.0;
@@ -129,20 +189,55 @@
   });
 
   /**
-   * Sound Player helper
+   * Sound Player helper — Uses preloaded audio objects for zero latency!
    */
   function playSFX(assetPath) {
     if (!isContextValid()) return;
     try {
       const url = safeGetURL(assetPath);
       if (!url) return;
-      const audio = new Audio(url);
-      audio.volume = 0.85;
-      const promise = audio.play();
-      if (promise !== undefined) {
-        promise.catch(() => { });
+
+      if (preloadedSFX[assetPath]) {
+        const clone = preloadedSFX[assetPath].cloneNode();
+        clone.volume = 0.9;
+        clone.play().catch(() => {});
+      } else {
+        const audio = new Audio(url);
+        audio.volume = 0.9;
+        audio.play().catch(() => {});
       }
-    } catch (e) { }
+    } catch (e) {}
+  }
+
+  /**
+   * Web Audio API Amplification: Boosts Video Sound Volume by 2.5x (250%)
+   */
+  function amplifyVideoAudio(mediaEl) {
+    try {
+      const AudioContext = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContext) return;
+      if (mediaEl._hasGainNode) return;
+      mediaEl._hasGainNode = true;
+
+      const ctx = new AudioContext();
+      const source = ctx.createMediaElementSource(mediaEl);
+      const gainNode = ctx.createGain();
+      gainNode.gain.value = 2.5; // 250% Volume Amplification!
+      source.connect(gainNode);
+      gainNode.connect(ctx.destination);
+
+      if (ctx.state === 'suspended') {
+        const resumeCtx = () => {
+          ctx.resume();
+          window.removeEventListener('click', resumeCtx);
+          window.removeEventListener('mousemove', resumeCtx);
+        };
+        window.addEventListener('click', resumeCtx, { once: true });
+        window.addEventListener('mousemove', resumeCtx, { once: true });
+      }
+    } catch (e) {
+      mediaEl.volume = 1.0;
+    }
   }
 
   /**
@@ -229,7 +324,6 @@
       ? `<video src="${creative.url}" class="main-media" id="satire-media" autoplay loop playsinline></video>`
       : `<img src="${creative.url}" class="main-media" id="satire-media" alt="Satirical Ad" />`;
 
-    // Evasive close button is rendered ONLY for popup ads, NOT stationary container replacements
     const closeBtnHtml = isPopup
       ? `<div class="evasive-btn" id="close-target" title="Close Ad">X</div>`
       : '';
@@ -312,6 +406,7 @@
       if (creative.isVideo) {
         mediaEl.volume = 1.0;
         mediaEl.muted = !audioUnlocked;
+        amplifyVideoAudio(mediaEl); // Web Audio API 2.5x Amplification!
         const playPromise = mediaEl.play();
         if (playPromise !== undefined) {
           playPromise.catch(() => {
@@ -412,15 +507,18 @@
           handleProximity(e.clientX, e.clientY);
         });
 
-        closeTarget.addEventListener('click', (e) => {
+        // Instant Zero-Delay Sound Trigger on Pointer/Mouse Down
+        const triggerDismiss = (e) => {
           e.stopPropagation();
+          e.preventDefault();
+          playSFX('assets/fx/close.mp3'); // Plays INSTANTLY on pointerdown
           if (typeof onDismiss === 'function') {
             onDismiss();
-          } else {
-            playSFX('assets/fx/close.mp3');
-            alert('ERROR: Action blocked by system policy!');
           }
-        });
+        };
+
+        closeTarget.addEventListener('pointerdown', triggerDismiss);
+        closeTarget.addEventListener('click', (e) => e.stopPropagation());
       }
     }
   }
@@ -504,8 +602,6 @@
 
   function dismissPopup(popupElement) {
     if (!popupElement) return;
-
-    playSFX('assets/fx/close.mp3');
 
     const index = activePopups.indexOf(popupElement);
     if (index !== -1) {
@@ -669,6 +765,7 @@
     if (!isContextValid()) return;
     if (e.key === 'Escape' && activePopups.length > 0) {
       const lastPopup = activePopups[activePopups.length - 1];
+      playSFX('assets/fx/close.mp3');
       dismissPopup(lastPopup);
     }
   });
