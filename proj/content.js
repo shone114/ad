@@ -1,4 +1,22 @@
 (function () {
+  // Context Validity Guard: Prevents "Extension context invalidated" errors when extension reloads
+  function isContextValid() {
+    try {
+      return typeof chrome !== 'undefined' && chrome.runtime && !!chrome.runtime.id;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function safeGetURL(relativePath) {
+    if (!isContextValid()) return '';
+    try {
+      return chrome.runtime.getURL(relativePath);
+    } catch (e) {
+      return '';
+    }
+  }
+
   const SELECTORS = [
     '.ad-slot',
     '.ad-banner',
@@ -25,129 +43,191 @@
 
   const PROCESSED_FLAG = 'data-satire-processed';
 
-  // Standard HTML tags that support element.attachShadow()
   const ALLOWED_SHADOW_TAGS = new Set([
     'ARTICLE', 'ASIDE', 'BLOCKQUOTE', 'BODY', 'DIV', 'FOOTER',
     'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'HEADER', 'MAIN', 'NAV', 'P', 'SECTION', 'SPAN'
   ]);
 
-  // User's custom WhatsApp ad assets list
-  const CUSTOM_ASSETS = [
-    'assets/WhatsApp Image 2026-09-13 at 8.43.29 AM (1).png',
-    'assets/WhatsApp Image 2026-09-13 at 8.43.29 AM (2).png',
-    'assets/WhatsApp Image 2026-09-13 at 8.43.29 AM (3).png',
-    'assets/WhatsApp Image 2026-09-13 at 8.43.29 AM (4).png',
-    'assets/WhatsApp Image 2026-09-13 at 8.43.29 AM (5).png',
-    'assets/WhatsApp Image 2026-09-13 at 8.43.29 AM.png',
-    'assets/WhatsApp Image 2026-09-13 at 8.43.30 AM (1).png',
-    'assets/WhatsApp Image 2026-09-13 at 8.43.30 AM (2).png',
-    'assets/WhatsApp Image 2026-09-13 at 8.43.30 AM (3).png',
-    'assets/WhatsApp Image 2026-09-13 at 8.43.30 AM (4).png',
-    'assets/WhatsApp Image 2026-09-13 at 8.43.30 AM.png'
+  // Image & GIF Assets in assets/imgs/
+  const CUSTOM_IMAGES = [
+    'assets/imgs/1.png',
+    'assets/imgs/2.jpg',
+    'assets/imgs/3.jpg',
+    'assets/imgs/4.jpg',
+    'assets/imgs/5.png',
+    'assets/imgs/6.png',
+    'assets/imgs/7.png',
+    'assets/imgs/8.jpg',
   ];
 
-  // Pre-load and cache creative asset natural aspect ratios
-  const assetCache = [];
+  // Video Ad Assets in assets/vids/ (POPUPS ONLY)
+  const CUSTOM_VIDEOS = [
+    'assets/vids/vidssave.com Sunlight _ Whatever be your age, hold on to the colours of your life! (Malayalam) 720P (online-video-cutter.com).mp4',
+    'assets/vids/vidssave.com Washing Powder Nirma – Historic ad – Edit 1 720p.mp4'
+  ];
 
-  CUSTOM_ASSETS.forEach((relativePath) => {
-    const url = chrome.runtime.getURL(relativePath);
-    const img = new Image();
-    img.onload = () => {
-      if (img.naturalWidth && img.naturalHeight) {
-        assetCache.push({
-          url: url,
-          ratio: img.naturalWidth / img.naturalHeight
-        });
-      }
+  const recentAssets = [];
+
+  /**
+   * Video rarity set to 20% for high impact popups
+   */
+  function getRandomCreativeAsset(allowVideo = false) {
+    const isVideoChoice = allowVideo && (Math.random() < 0.20);
+    const pool = isVideoChoice ? CUSTOM_VIDEOS : CUSTOM_IMAGES;
+
+    const available = pool.filter((path) => !recentAssets.includes(path));
+    const finalPool = available.length > 0 ? available : pool;
+
+    const chosenPath = finalPool[Math.floor(Math.random() * finalPool.length)];
+
+    recentAssets.push(chosenPath);
+    if (recentAssets.length > 6) {
+      recentAssets.shift();
+    }
+
+    const isVideo = chosenPath.endsWith('.mp4') || chosenPath.endsWith('.webm');
+    return {
+      url: safeGetURL(chosenPath),
+      relativePath: chosenPath,
+      isVideo: isVideo
     };
-    img.src = url;
-  });
+  }
 
   // Audio Autoplay Policy Unlocker
   let audioUnlocked = false;
   function unlockAudio() {
+    if (!isContextValid()) return;
     if (audioUnlocked) return;
     audioUnlocked = true;
     try {
       const a = new Audio();
-      a.play().catch(() => {});
-    } catch (e) {}
+      a.play().catch(() => { });
+    } catch (e) { }
+
+    // Unmute & set max volume (1.0) on video ads
+    document.querySelectorAll('video').forEach((v) => {
+      v.muted = false;
+      v.volume = 1.0;
+    });
+
+    activePopups.forEach((popup) => {
+      if (popup.shadowRoot) {
+        const v = popup.shadowRoot.querySelector('video');
+        if (v) {
+          v.muted = false;
+          v.volume = 1.0;
+        }
+      }
+    });
   }
 
   ['click', 'keydown', 'mousemove', 'pointerdown', 'touchstart'].forEach((evt) => {
-    window.addEventListener(evt, unlockAudio, { once: true, capture: true });
+    window.addEventListener(evt, unlockAudio, { capture: true });
   });
 
   /**
-   * Safe Audio Player helper (creates fresh Audio instance per trigger)
+   * Sound Player helper
    */
-  function playSound(assetPath) {
+  function playSFX(assetPath) {
+    if (!isContextValid()) return;
     try {
-      const url = chrome.runtime.getURL(assetPath);
+      const url = safeGetURL(assetPath);
+      if (!url) return;
       const audio = new Audio(url);
       audio.volume = 0.85;
       const promise = audio.play();
       if (promise !== undefined) {
-        promise.catch(() => {});
+        promise.catch(() => { });
       }
-    } catch (e) {}
+    } catch (e) { }
   }
 
   /**
-   * Pick the asset whose natural aspect ratio is closest to targetRatio.
+   * Fits media (Image or Video) to container aspect ratio
    */
-  function getBestAssetUrl(targetRatio) {
-    if (!assetCache.length) {
-      const randomIndex = Math.floor(Math.random() * CUSTOM_ASSETS.length);
-      return chrome.runtime.getURL(CUSTOM_ASSETS[randomIndex]);
-    }
+  function fitMediaToContainer(mediaEl, wrapper, curWidth, curHeight, wrapperTarget, isVideo) {
+    const getAspect = () => {
+      if (isVideo) {
+        return (mediaEl.videoWidth && mediaEl.videoHeight)
+          ? mediaEl.videoWidth / mediaEl.videoHeight
+          : null;
+      }
+      return (mediaEl.naturalWidth && mediaEl.naturalHeight)
+        ? mediaEl.naturalWidth / mediaEl.naturalHeight
+        : null;
+    };
 
-    let best = assetCache[0];
-    let minDiff = Math.abs(best.ratio - targetRatio);
+    const applyFit = () => {
+      const assetAR = getAspect();
+      if (!assetAR) return;
 
-    for (let i = 1; i < assetCache.length; i++) {
-      const diff = Math.abs(assetCache[i].ratio - targetRatio);
-      if (diff < minDiff) {
-        minDiff = diff;
-        best = assetCache[i];
+      const containerAR = curWidth / curHeight;
+      const relativeDiff = Math.abs(containerAR - assetAR) / assetAR;
+
+      if (relativeDiff <= 0.15) {
+        mediaEl.style.objectFit = 'cover';
+      } else {
+        const newHeight = Math.round(curWidth / assetAR);
+        wrapper.style.height = `${newHeight}px`;
+        if (wrapperTarget) {
+          wrapperTarget.style.height = `${newHeight}px`;
+        }
+        mediaEl.style.objectFit = 'cover';
+      }
+    };
+
+    if (isVideo) {
+      if (mediaEl.readyState >= 1) {
+        applyFit();
+      } else {
+        mediaEl.addEventListener('loadedmetadata', applyFit, { once: true });
+      }
+    } else {
+      if (mediaEl.complete && mediaEl.naturalWidth) {
+        applyFit();
+      } else {
+        mediaEl.addEventListener('load', applyFit, { once: true });
       }
     }
-    return best.url;
   }
 
   /**
-   * Core Renderer for Satirical Ad Markup (Shared between container replacement & independent popups)
+   * Core Renderer for Satirical Ad Markup
    */
   function injectSatiricalContent(rootContainer, options = {}) {
+    if (!isContextValid()) return;
+
     const {
-      assetUrl = chrome.runtime.getURL('assets/satirical_ad.gif'),
+      isPopup = false,
       containerWidth = 300,
       containerHeight = 250,
-      isPopup = false,
       onDismiss = null,
       wrapperTarget = null
     } = options;
+
+    const creative = options.creative || getRandomCreativeAsset(isPopup);
 
     const wrapper = document.createElement('div');
     wrapper.className = isPopup ? 'satire-popup-wrapper' : 'satire-container-wrapper';
 
     wrapper.style.cssText =
       'position:relative; width:100%; height:100%; overflow:hidden; ' +
-      'background:#050505; border:3px solid #ff0055; box-sizing:border-box; ' +
-      'font-family:sans-serif; user-select:none; display:flex; flex-direction:column;';
+      'background:#0a0a0c; border-radius:8px; box-sizing:border-box; ' +
+      'font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; ' +
+      'user-select:none; display:flex; flex-direction:column; ' +
+      (isPopup
+        ? 'border:1px solid rgba(255,255,255,0.15); box-shadow:0 12px 36px rgba(0,0,0,0.4), 0 0 1px rgba(255,255,255,0.2);'
+        : 'box-shadow:0 4px 12px rgba(0,0,0,0.15); border:1px solid rgba(255,255,255,0.08);');
 
-    if (isPopup) {
-      wrapper.style.borderRadius = '8px';
-      wrapper.style.boxShadow = '0 10px 30px rgba(0,0,0,0.8), 0 0 15px #ff0055';
-    }
-
-    // Initial random position for close button
     const initTop = Math.floor(Math.random() * 60) + 15;
     const initLeft = Math.floor(Math.random() * 65) + 15;
 
+    const mediaHtml = creative.isVideo
+      ? `<video src="${creative.url}" class="main-media" id="satire-media" autoplay loop playsinline></video>`
+      : `<img src="${creative.url}" class="main-media" id="satire-media" alt="Satirical Ad" />`;
+
     wrapper.innerHTML = `
       <style>
-        /* NEAR MISS QUICK JITTER ANIMATION */
         @keyframes quick-jitter {
           0% { transform: translate(0, 0); }
           25% { transform: translate(-8px, 5px); }
@@ -167,17 +247,17 @@
           height: 24px;
           background: #ff0033;
           color: #ffffff;
-          font-size: 14px;
+          font-size: 13px;
           font-weight: bold;
           text-align: center;
           line-height: 24px;
           cursor: pointer;
-          border: 2px solid #ffffff;
+          border: 1.5px solid #ffffff;
           border-radius: 4px;
           z-index: 50;
           user-select: none;
-          box-shadow: 0 3px 6px rgba(0,0,0,0.6);
-          transition: opacity 0.2s ease;
+          box-shadow: 0 3px 8px rgba(0,0,0,0.5);
+          transition: top 0.18s ease-out, left 0.18s ease-out, opacity 0.2s ease;
         }
 
         .media-container {
@@ -189,8 +269,9 @@
           align-items: center;
           justify-content: center;
           background: #000000;
+          border-radius: 7px;
         }
-        .main-image {
+        .main-media {
           width: 100%;
           height: 100%;
           object-fit: cover;
@@ -200,37 +281,62 @@
       <div class="evasive-btn" id="close-target" title="Close Ad">X</div>
       
       <div class="media-container">
-        <img src="${assetUrl}" class="main-image" id="satire-img" alt="Satirical Ad" />
+        ${mediaHtml}
       </div>
     `;
 
     rootContainer.appendChild(wrapper);
 
-    const imgEl = wrapper.querySelector('#satire-img');
+    const mediaEl = wrapper.querySelector('#satire-media');
 
-    // Smart Aspect Ratio Fitting Logic
-    if (imgEl) {
-      imgEl.onload = () => {
-        if (!imgEl.naturalWidth || !imgEl.naturalHeight) return;
-
-        const assetAR = imgEl.naturalWidth / imgEl.naturalHeight;
-        const containerAR = containerWidth / containerHeight;
-        const relativeDiff = Math.abs(containerAR - assetAR) / assetAR;
-
-        if (relativeDiff <= 0.15) {
-          imgEl.style.objectFit = 'cover';
-        } else {
-          const newHeight = Math.round(containerWidth / assetAR);
-          wrapper.style.height = `${newHeight}px`;
-          if (wrapperTarget) {
-            wrapperTarget.style.height = `${newHeight}px`;
-          }
-          imgEl.style.objectFit = 'cover';
+    if (mediaEl && !creative.isVideo) {
+      mediaEl.onerror = () => {
+        const fallbackAsset = getRandomCreativeAsset(false);
+        if (fallbackAsset.url && fallbackAsset.url !== mediaEl.src) {
+          mediaEl.src = fallbackAsset.url;
         }
       };
     }
 
-    // CATCHABLE EVASIVE MECHANICS
+    if (mediaEl) {
+      fitMediaToContainer(mediaEl, wrapper, containerWidth, containerHeight, wrapperTarget, creative.isVideo);
+
+      if (creative.isVideo) {
+        mediaEl.volume = 1.0; // Boosted video volume to max (1.0)
+        mediaEl.muted = !audioUnlocked;
+        const playPromise = mediaEl.play();
+        if (playPromise !== undefined) {
+          playPromise.catch(() => {
+            mediaEl.muted = true;
+            mediaEl.play();
+          });
+        }
+      }
+    }
+
+    if (!isPopup && wrapperTarget && window.ResizeObserver) {
+      let lastW = containerWidth;
+      let lastH = containerHeight;
+      const ro = new ResizeObserver((entries) => {
+        if (!isContextValid()) {
+          ro.disconnect();
+          return;
+        }
+        for (const entry of entries) {
+          const cr = entry.contentRect;
+          if (cr.width <= 0 || cr.height <= 0) continue;
+          if (Math.abs(cr.width - lastW) > 10 || Math.abs(cr.height - lastH) > 10) {
+            lastW = cr.width;
+            lastH = cr.height;
+            if (mediaEl) {
+              fitMediaToContainer(mediaEl, wrapper, cr.width, cr.height, wrapperTarget, creative.isVideo);
+            }
+          }
+        }
+      });
+      ro.observe(wrapperTarget);
+    }
+
     let hasHadFirstMiss = false;
     let nearMissCooldown = false;
     let dodgeCount = 0;
@@ -241,33 +347,31 @@
 
     if (closeTarget) {
       function handleProximity(clientX, clientY) {
+        if (!isContextValid()) return;
         const btnRect = closeTarget.getBoundingClientRect();
         const btnCenterX = btnRect.left + btnRect.width / 2;
         const btnCenterY = btnRect.top + btnRect.height / 2;
         const distance = Math.hypot(clientX - btnCenterX, clientY - btnCenterY);
 
-        // Near-miss audio & jitter check (~28px threshold)
         if (distance <= 28 && !nearMissCooldown) {
           nearMissCooldown = true;
-          setTimeout(() => { nearMissCooldown = false; }, 250);
+          setTimeout(() => { nearMissCooldown = false; }, 400);
 
           if (!hasHadFirstMiss) {
             hasHadFirstMiss = true;
-            playSound('assets/wrong1.mp3');
+            playSFX('assets/fx/wrong1.mp3');
           } else {
-            playSound('assets/wrong.mp3');
+            playSFX('assets/fx/wrong.mp3');
           }
 
-          // Trigger quick-jitter burst
           wrapper.classList.remove('quick-jitter');
-          void wrapper.offsetWidth; // Reflow
+          void wrapper.offsetWidth;
           wrapper.classList.add('quick-jitter');
           setTimeout(() => {
             wrapper.classList.remove('quick-jitter');
           }, 220);
         }
 
-        // Tuned Catchable Dodge Mechanics (38px radius, 180ms cooldown, 3-dodge fatigue pause)
         if (distance <= 38 && !isFatigued && !dodgeCooldown) {
           dodgeCooldown = true;
           setTimeout(() => { dodgeCooldown = false; }, 180);
@@ -279,7 +383,6 @@
           closeTarget.style.top = `${newTop}%`;
           closeTarget.style.left = `${newLeft}%`;
 
-          // After 3 consecutive dodges, fatigue for 1.2s so the user can catch & click it!
           if (dodgeCount >= 3) {
             isFatigued = true;
             closeTarget.style.opacity = '0.7';
@@ -299,13 +402,12 @@
         handleProximity(e.clientX, e.clientY);
       });
 
-      // Successful Close Click on Evasive X button
       closeTarget.addEventListener('click', (e) => {
         e.stopPropagation();
         if (typeof onDismiss === 'function') {
           onDismiss();
         } else {
-          playSound('assets/close.mp3');
+          playSFX('assets/fx/close.mp3');
           alert('ERROR: Action blocked by system policy!');
         }
       });
@@ -313,6 +415,7 @@
   }
 
   function transformElement(element) {
+    if (!isContextValid()) return;
     if (!element || element.hasAttribute(PROCESSED_FLAG)) return;
     element.setAttribute(PROCESSED_FLAG, 'true');
 
@@ -347,13 +450,12 @@
       element.style.display = 'block';
     }
 
-    const targetRatio = width / height;
-    const bestAssetUrl = getBestAssetUrl(targetRatio);
+    const creative = getRandomCreativeAsset(false);
 
     try {
       const shadow = shadowTarget.attachShadow({ mode: 'open' });
       injectSatiricalContent(shadow, {
-        assetUrl: bestAssetUrl,
+        creative: creative,
         containerWidth: width,
         containerHeight: height,
         isPopup: false,
@@ -363,7 +465,7 @@
       console.warn('[Satirical Ad Replacer] Falling back to direct DOM insertion:', e);
       shadowTarget.innerHTML = '';
       injectSatiricalContent(shadowTarget, {
-        assetUrl: bestAssetUrl,
+        creative: creative,
         containerWidth: width,
         containerHeight: height,
         isPopup: false,
@@ -373,6 +475,7 @@
   }
 
   function executeScan() {
+    if (!isContextValid()) return;
     try {
       const combinedSelector = SELECTORS.join(',');
       const elements = document.querySelectorAll(combinedSelector);
@@ -390,8 +493,7 @@
   function dismissPopup(popupElement) {
     if (!popupElement) return;
 
-    // Play close.mp3 sound on dismissal
-    playSound('assets/close.mp3');
+    playSFX('assets/fx/close.mp3');
 
     const index = activePopups.indexOf(popupElement);
     if (index !== -1) {
@@ -402,28 +504,73 @@
     }
   }
 
-  function spawnRandomPopup() {
-    if (activePopups.length >= MAX_POPUPS) return;
-
-    // Guaranteed 1:1 Alternating Spawn Sound (pop1 -> pop2 -> pop1 -> pop2)
-    popSoundCounter++;
-    const popSound = (popSoundCounter % 2 === 1) ? 'assets/pop1.mp3' : 'assets/pop2.mp3';
-    playSound(popSound);
-
-    // Random popup dimensions (250-400px width, 200-300px height)
-    const popupWidth = Math.floor(Math.random() * 150) + 250;
-    const popupHeight = Math.floor(Math.random() * 100) + 200;
-
+  /**
+   * Anti-Stacking Scatter Algorithm:
+   * Tests 12 candidate positions across the viewport and picks the candidate
+   * position farthest from all currently active popups!
+   */
+  function getBestScatterPosition(popupWidth, popupHeight) {
     const viewportW = window.innerWidth || document.documentElement.clientWidth || 800;
     const viewportH = window.innerHeight || document.documentElement.clientHeight || 600;
 
-    const maxLeft = Math.max(10, viewportW - popupWidth - 20);
-    const maxTop = Math.max(10, viewportH - popupHeight - 20);
+    const maxLeft = Math.max(10, viewportW - popupWidth - 25);
+    const maxTop = Math.max(10, viewportH - popupHeight - 25);
 
-    const left = Math.floor(Math.random() * maxLeft) + 10;
-    const top = Math.floor(Math.random() * maxTop) + 10;
+    if (activePopups.length === 0) {
+      return {
+        left: Math.floor(Math.random() * maxLeft) + 10,
+        top: Math.floor(Math.random() * maxTop) + 10
+      };
+    }
 
-    // Global Keyframe Animation Definition for Host Popup Element
+    let bestPos = null;
+    let bestMinDist = -1;
+
+    for (let i = 0; i < 12; i++) {
+      const candLeft = Math.floor(Math.random() * maxLeft) + 10;
+      const candTop = Math.floor(Math.random() * maxTop) + 10;
+
+      let minDistToOther = Infinity;
+
+      for (const existingPopup of activePopups) {
+        const rect = existingPopup.getBoundingClientRect();
+        const dist = Math.hypot(candLeft - rect.left, candTop - rect.top);
+        if (dist < minDistToOther) {
+          minDistToOther = dist;
+        }
+      }
+
+      if (minDistToOther > bestMinDist) {
+        bestMinDist = minDistToOther;
+        bestPos = { left: candLeft, top: candTop };
+      }
+    }
+
+    return bestPos || {
+      left: Math.floor(Math.random() * maxLeft) + 10,
+      top: Math.floor(Math.random() * maxTop) + 10
+    };
+  }
+
+  function spawnRandomPopup() {
+    if (!isContextValid()) return;
+    if (activePopups.length >= MAX_POPUPS) return;
+
+    const creative = getRandomCreativeAsset(true);
+
+    // Dimension Selection: Video popups are larger and more cinematic
+    let popupWidth, popupHeight;
+    if (creative.isVideo) {
+      popupWidth = Math.floor(Math.random() * 140) + 380;  // 380px - 520px width
+      popupHeight = Math.floor(Math.random() * 100) + 280; // 280px - 380px height
+    } else {
+      popupWidth = Math.floor(Math.random() * 130) + 250;  // 250px - 380px width
+      popupHeight = Math.floor(Math.random() * 80) + 200;  // 200px - 280px height
+    }
+
+    // Scatter algorithm prevents popups from stacking directly on top of each other
+    const { left, top } = getBestScatterPosition(popupWidth, popupHeight);
+
     if (!document.getElementById('satire-global-styles')) {
       const globalStyle = document.createElement('style');
       globalStyle.id = 'satire-global-styles';
@@ -445,57 +592,74 @@
       `animation: sat-pop-in 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) forwards; ` +
       `transform-origin: center center;`;
 
-    document.body.appendChild(popupDiv);
-    activePopups.push(popupDiv);
-
-    const targetRatio = popupWidth / popupHeight;
-    const assetUrl = getBestAssetUrl(targetRatio);
+    let success = false;
 
     try {
       const shadow = popupDiv.attachShadow({ mode: 'open' });
       injectSatiricalContent(shadow, {
-        assetUrl: assetUrl,
+        creative: creative,
         containerWidth: popupWidth,
         containerHeight: popupHeight,
         isPopup: true,
         onDismiss: () => dismissPopup(popupDiv),
         wrapperTarget: popupDiv
       });
+      document.body.appendChild(popupDiv);
+      activePopups.push(popupDiv);
+      success = true;
     } catch (e) {
-      popupDiv.innerHTML = '';
-      injectSatiricalContent(popupDiv, {
-        assetUrl: assetUrl,
-        containerWidth: popupWidth,
-        containerHeight: popupHeight,
-        isPopup: true,
-        onDismiss: () => dismissPopup(popupDiv),
-        wrapperTarget: popupDiv
-      });
+      try {
+        popupDiv.innerHTML = '';
+        injectSatiricalContent(popupDiv, {
+          creative: creative,
+          containerWidth: popupWidth,
+          containerHeight: popupHeight,
+          isPopup: true,
+          onDismiss: () => dismissPopup(popupDiv),
+          wrapperTarget: popupDiv
+        });
+        document.body.appendChild(popupDiv);
+        activePopups.push(popupDiv);
+        success = true;
+      } catch (err) {
+        console.error('[Satirical Ad Replacer] Popup render error:', err);
+      }
+    }
+
+    if (success) {
+      popSoundCounter++;
+      const popSound = (popSoundCounter % 2 === 1) ? 'assets/fx/pop1.mp3' : 'assets/fx/pop2.mp3';
+      playSFX(popSound);
     }
   }
 
   function scheduleNextPopup() {
-    const intervalMs = Math.floor(Math.random() * 15000) + 15000;
+    if (!isContextValid()) return;
+    const intervalMs = Math.floor(Math.random() * 2000) + 4000;
     setTimeout(() => {
-      spawnRandomPopup();
-      scheduleNextPopup();
+      if (isContextValid()) {
+        spawnRandomPopup();
+        scheduleNextPopup();
+      }
     }, intervalMs);
   }
 
-  // Keyboard 'Escape' key listener to dismiss the most recently spawned popup
   window.addEventListener('keydown', (e) => {
+    if (!isContextValid()) return;
     if (e.key === 'Escape' && activePopups.length > 0) {
       const lastPopup = activePopups[activePopups.length - 1];
       dismissPopup(lastPopup);
     }
   });
 
-  // Initial execution scan & popup scheduler start
   executeScan();
   scheduleNextPopup();
 
-  // Dynamic DOM insertion observer
   const observer = new MutationObserver((mutations) => {
+    if (!isContextValid()) {
+      observer.disconnect();
+      return;
+    }
     let nodeAdded = false;
     for (const mutation of mutations) {
       if (mutation.addedNodes.length > 0) {
