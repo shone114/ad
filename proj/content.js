@@ -60,7 +60,6 @@
     'assets/imgs/8.jpg',
     'assets/imgs/9.jpg',
     'assets/imgs/10.jpg'
-
   ];
 
   // Video Ad Assets in assets/vids/ (POPUPS ONLY)
@@ -73,7 +72,7 @@
   const recentAssets = [];
 
   /**
-   * Video rarity set to 20% for high impact popups
+   * Video rarity set to 40% for high impact popups
    */
   function getRandomCreativeAsset(allowVideo = false) {
     const isVideoChoice = allowVideo && (Math.random() < 0.40);
@@ -230,6 +229,11 @@
       ? `<video src="${creative.url}" class="main-media" id="satire-media" autoplay loop playsinline></video>`
       : `<img src="${creative.url}" class="main-media" id="satire-media" alt="Satirical Ad" />`;
 
+    // Evasive close button is rendered ONLY for popup ads, NOT stationary container replacements
+    const closeBtnHtml = isPopup
+      ? `<div class="evasive-btn" id="close-target" title="Close Ad">X</div>`
+      : '';
+
     wrapper.innerHTML = `
       <style>
         @keyframes quick-jitter {
@@ -282,7 +286,7 @@
           display: block;
         }
       </style>
-      <div class="evasive-btn" id="close-target" title="Close Ad">X</div>
+      ${closeBtnHtml}
       
       <div class="media-container">
         ${mediaHtml}
@@ -306,7 +310,7 @@
       fitMediaToContainer(mediaEl, wrapper, containerWidth, containerHeight, wrapperTarget, creative.isVideo);
 
       if (creative.isVideo) {
-        mediaEl.volume = 1.0; // Boosted video volume to max (1.0)
+        mediaEl.volume = 1.0;
         mediaEl.muted = !audioUnlocked;
         const playPromise = mediaEl.play();
         if (playPromise !== undefined) {
@@ -341,80 +345,83 @@
       ro.observe(wrapperTarget);
     }
 
-    let hasHadFirstMiss = false;
-    let nearMissCooldown = false;
-    let dodgeCount = 0;
-    let dodgeCooldown = false;
-    let isFatigued = false;
+    // Evasive Button Near-Miss & Fatigue Mechanics ONLY for Popups
+    if (isPopup) {
+      let hasHadFirstMiss = false;
+      let nearMissCooldown = false;
+      let dodgeCount = 0;
+      let dodgeCooldown = false;
+      let isFatigued = false;
 
-    const closeTarget = wrapper.querySelector('#close-target');
+      const closeTarget = wrapper.querySelector('#close-target');
 
-    if (closeTarget) {
-      function handleProximity(clientX, clientY) {
-        if (!isContextValid()) return;
-        const btnRect = closeTarget.getBoundingClientRect();
-        const btnCenterX = btnRect.left + btnRect.width / 2;
-        const btnCenterY = btnRect.top + btnRect.height / 2;
-        const distance = Math.hypot(clientX - btnCenterX, clientY - btnCenterY);
+      if (closeTarget) {
+        function handleProximity(clientX, clientY) {
+          if (!isContextValid()) return;
+          const btnRect = closeTarget.getBoundingClientRect();
+          const btnCenterX = btnRect.left + btnRect.width / 2;
+          const btnCenterY = btnRect.top + btnRect.height / 2;
+          const distance = Math.hypot(clientX - btnCenterX, clientY - btnCenterY);
 
-        if (distance <= 28 && !nearMissCooldown) {
-          nearMissCooldown = true;
-          setTimeout(() => { nearMissCooldown = false; }, 400);
+          if (distance <= 28 && !nearMissCooldown) {
+            nearMissCooldown = true;
+            setTimeout(() => { nearMissCooldown = false; }, 400);
 
-          if (!hasHadFirstMiss) {
-            hasHadFirstMiss = true;
-            playSFX('assets/fx/wrong1.mp3');
-          } else {
-            playSFX('assets/fx/wrong.mp3');
-          }
+            if (!hasHadFirstMiss) {
+              hasHadFirstMiss = true;
+              playSFX('assets/fx/wrong1.mp3');
+            } else {
+              playSFX('assets/fx/wrong.mp3');
+            }
 
-          wrapper.classList.remove('quick-jitter');
-          void wrapper.offsetWidth;
-          wrapper.classList.add('quick-jitter');
-          setTimeout(() => {
             wrapper.classList.remove('quick-jitter');
-          }, 220);
-        }
-
-        if (distance <= 38 && !isFatigued && !dodgeCooldown) {
-          dodgeCooldown = true;
-          setTimeout(() => { dodgeCooldown = false; }, 180);
-
-          dodgeCount++;
-
-          const newTop = Math.floor(Math.random() * 60) + 15;
-          const newLeft = Math.floor(Math.random() * 65) + 15;
-          closeTarget.style.top = `${newTop}%`;
-          closeTarget.style.left = `${newLeft}%`;
-
-          if (dodgeCount >= 3) {
-            isFatigued = true;
-            closeTarget.style.opacity = '0.7';
-            closeTarget.title = 'Click to Close (Button Tired!)';
-
+            void wrapper.offsetWidth;
+            wrapper.classList.add('quick-jitter');
             setTimeout(() => {
-              isFatigued = false;
-              dodgeCount = 0;
-              closeTarget.style.opacity = '1';
-              closeTarget.title = 'Close Ad';
-            }, 1200);
+              wrapper.classList.remove('quick-jitter');
+            }, 220);
+          }
+
+          if (distance <= 38 && !isFatigued && !dodgeCooldown) {
+            dodgeCooldown = true;
+            setTimeout(() => { dodgeCooldown = false; }, 180);
+
+            dodgeCount++;
+
+            const newTop = Math.floor(Math.random() * 60) + 15;
+            const newLeft = Math.floor(Math.random() * 65) + 15;
+            closeTarget.style.top = `${newTop}%`;
+            closeTarget.style.left = `${newLeft}%`;
+
+            if (dodgeCount >= 3) {
+              isFatigued = true;
+              closeTarget.style.opacity = '0.7';
+              closeTarget.title = 'Click to Close (Button Tired!)';
+
+              setTimeout(() => {
+                isFatigued = false;
+                dodgeCount = 0;
+                closeTarget.style.opacity = '1';
+                closeTarget.title = 'Close Ad';
+              }, 1200);
+            }
           }
         }
+
+        wrapper.addEventListener('mousemove', (e) => {
+          handleProximity(e.clientX, e.clientY);
+        });
+
+        closeTarget.addEventListener('click', (e) => {
+          e.stopPropagation();
+          if (typeof onDismiss === 'function') {
+            onDismiss();
+          } else {
+            playSFX('assets/fx/close.mp3');
+            alert('ERROR: Action blocked by system policy!');
+          }
+        });
       }
-
-      wrapper.addEventListener('mousemove', (e) => {
-        handleProximity(e.clientX, e.clientY);
-      });
-
-      closeTarget.addEventListener('click', (e) => {
-        e.stopPropagation();
-        if (typeof onDismiss === 'function') {
-          onDismiss();
-        } else {
-          playSFX('assets/fx/close.mp3');
-          alert('ERROR: Action blocked by system policy!');
-        }
-      });
     }
   }
 
@@ -489,9 +496,10 @@
     }
   }
 
-  // INDEPENDENT POPUP AD SPAWNING ENGINE
+  // INDEPENDENT POPUP AD SPAWNING ENGINE WITH HYDRA MULTIPLIER MECHANIC
   const activePopups = [];
-  const MAX_POPUPS = 4;
+  let MAX_POPUPS = 4;
+  const ABSOLUTE_MAX_POPUPS = 12;
   let popSoundCounter = 0;
 
   function dismissPopup(popupElement) {
@@ -506,12 +514,23 @@
     if (popupElement.parentNode) {
       popupElement.parentNode.removeChild(popupElement);
     }
+
+    // HYDRA MULTIPLIER: Closing 1 popup increases limit and spawns 2 new popups!
+    if (MAX_POPUPS < ABSOLUTE_MAX_POPUPS) {
+      MAX_POPUPS += 1;
+    }
+
+    setTimeout(() => {
+      if (isContextValid()) spawnRandomPopup();
+    }, 200);
+
+    setTimeout(() => {
+      if (isContextValid()) spawnRandomPopup();
+    }, 550);
   }
 
   /**
-   * Anti-Stacking Scatter Algorithm:
-   * Tests 12 candidate positions across the viewport and picks the candidate
-   * position farthest from all currently active popups!
+   * Anti-Stacking Scatter Algorithm
    */
   function getBestScatterPosition(popupWidth, popupHeight) {
     const viewportW = window.innerWidth || document.documentElement.clientWidth || 800;
@@ -562,17 +581,15 @@
 
     const creative = getRandomCreativeAsset(true);
 
-    // Dimension Selection: Video popups are larger and more cinematic
     let popupWidth, popupHeight;
     if (creative.isVideo) {
-      popupWidth = Math.floor(Math.random() * 140) + 380;  // 380px - 520px width
-      popupHeight = Math.floor(Math.random() * 100) + 280; // 280px - 380px height
+      popupWidth = Math.floor(Math.random() * 140) + 380;
+      popupHeight = Math.floor(Math.random() * 100) + 280;
     } else {
-      popupWidth = Math.floor(Math.random() * 130) + 250;  // 250px - 380px width
-      popupHeight = Math.floor(Math.random() * 80) + 200;  // 200px - 280px height
+      popupWidth = Math.floor(Math.random() * 130) + 250;
+      popupHeight = Math.floor(Math.random() * 80) + 200;
     }
 
-    // Scatter algorithm prevents popups from stacking directly on top of each other
     const { left, top } = getBestScatterPosition(popupWidth, popupHeight);
 
     if (!document.getElementById('satire-global-styles')) {
