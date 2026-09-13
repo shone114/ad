@@ -58,12 +58,16 @@
     'assets/imgs/6.png',
     'assets/imgs/7.png',
     'assets/imgs/8.jpg',
+    'assets/imgs/9.jpg',
+    'assets/imgs/10.jpg'
+
   ];
 
   // Video Ad Assets in assets/vids/ (POPUPS ONLY)
   const CUSTOM_VIDEOS = [
     'assets/vids/vidssave.com Sunlight _ Whatever be your age, hold on to the colours of your life! (Malayalam) 720P (online-video-cutter.com).mp4',
-    'assets/vids/vidssave.com Washing Powder Nirma – Historic ad – Edit 1 720p.mp4'
+    'assets/vids/vidssave.com Washing Powder Nirma – Historic ad – Edit 1 720p.mp4',
+    'assets/vids/a10.mp4'
   ];
 
   const recentAssets = [];
@@ -72,7 +76,7 @@
    * Video rarity set to 20% for high impact popups
    */
   function getRandomCreativeAsset(allowVideo = false) {
-    const isVideoChoice = allowVideo && (Math.random() < 0.20);
+    const isVideoChoice = allowVideo && (Math.random() < 0.40);
     const pool = isVideoChoice ? CUSTOM_VIDEOS : CUSTOM_IMAGES;
 
     const available = pool.filter((path) => !recentAssets.includes(path));
